@@ -1,25 +1,34 @@
 #!/bin/sh
-
 # Copyright (c) 2023 LENAR
 
-MEP=$(at_exe "strings /dev/mtd1" | grep -Eo "[0-9]{8}" | tail -1)
-ARG_METHOD="$1"
-ARG_PN="$2"
+arg_pn="$2"
+mep=$(at_exec "strings /dev/mtd1" | grep -Eo "[0-9]{8}" | tail -1)
+script_name="$(basename "$0")"
 
 show_usage() {
     cat <<EOF
-Usage: $(basename "$0") <Method> [PN]
+Usage: $script_name <Method> [PN]
 
-Method:
-  R            | Read MEP
-  U            | Unlock MEP
-  L            | Lock MEP
-  T            | Test PN
-  S            | Lock Status
+Method
+  read                 - Read PN
+  unlock               - Unlock MEP
+  lock                 - Lock MEP
+  test                 - Test PN
+  status               - Lock status
 
-PN:
-  Your unlock code (required for <Method> T)
+Examples
+  $script_name u
+  $script_name t 1234
+  $script_name s
 EOF
+}
+
+header() {
+    echo -e "--[       MEP Unlock      ]--\n"
+}
+
+normalize() {
+    echo "$1" | tr 'A-Z' 'a-z'
 }
 
 error_exit() {
@@ -28,19 +37,18 @@ error_exit() {
 }
 
 check_mep() {
-    if [ -z "$MEP" ]; then
-        error_exit "MEP not found."
-    fi
+    [ -z "$mep" ] && error_exit "MEP not found."
 }
 
 read_mep() {
     check_mep
-    echo "PN: $MEP"
+    header
+    echo "PN: $mep"
 }
 
 unlock_mep() {
     check_mep
-    if ! at_cmd "AT+CLCK=PN,0,$MEP,16" >/dev/null 2>&1; then
+    if ! at_cmd "AT+CLCK=PN,0,$mep,16" &> /dev/null; then
         error_exit "Failed to execute. Unlock command."
     fi
     show_status
@@ -48,7 +56,7 @@ unlock_mep() {
 
 lock_mep() {
     check_mep
-    if ! at_cmd "AT+CLCK=PN,1,$MEP,16" >/dev/null 2>&1; then
+    if ! at_cmd "AT+CLCK=PN,1,$mep,16" &> /dev/null; then
         error_exit "Failed to execute. Lock command."
     fi
     show_status
@@ -56,35 +64,40 @@ lock_mep() {
 
 test_pn() {
     check_mep
-    case "$ARG_PN" in
-        '') error_exit "[PN] required for <Method> T." ;;
+    case "$arg_pn" in
+        '') error_exit "[PN] required on test command." ;;
         *[!0-9]*) error_exit "[PN] must be numeric." ;;
     esac
-    if ! at_cmd "AT+CLCK=PN,0,$ARG_PN,16" >/dev/null 2>&1; then
+    if ! at_cmd "AT+CLCK=PN,0,$arg_pn,16" &> /dev/null; then
         error_exit "Failed to execute. Test command."
     fi
     show_status
 }
 
 show_status() {
-    CHECK=$(at_cmd "AT+CLCK=PN,2" | awk -F':' '/^\+CLCK/ {print $2}' | xargs)
-    case "$CHECK" in
-        0) STATUS="Unlocked" ;;
-        1) STATUS="Locked" ;;
-        *) STATUS="Unknown" ;;
+    check=$(at_cmd "AT+CLCK=PN,2" | sed -n 's/^+CLCK://p' | xargs)
+    case "$check" in
+        0) status="Unlocked" ;;
+        1) status="Locked" ;;
+        *) status="Unknown" ;;
     esac
-    echo "Status: $STATUS"
+    header
+    echo "Status: $status"
 }
 
-case "$ARG_METHOD" in
-    H|h) show_usage ;;
-    R|r) read_mep ;;
-    U|u) unlock_mep ;;
-    L|l) lock_mep ;;
-    T|t) test_pn ;;
-    S|s) show_status ;;
-    '') error_exit "No command specified." ;;
-    *) error_exit "Invalid <Method>. Use '$(basename "$0") H' for more details." ;;
-esac
+main() {
+    if [ $# -eq 0 ]; then
+        error_exit "No command specified. Use '$script_name status' to see status."
+    fi
+    case "$(normalize "$1")" in
+        h|help) show_usage ;;
+        r|read) read_mep ;;
+        u|unlock) unlock_mep ;;
+        l|lock) lock_mep ;;
+        t|test) test_pn ;;
+        s|status) show_status ;;
+        *) error_exit "Invalid command '$1'. Use '$script_name help' for more details." ;;
+    esac
+}
 
-exit 0
+main "$@"

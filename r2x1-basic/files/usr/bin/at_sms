@@ -1,18 +1,29 @@
 #!/bin/sh
-
 # Copyright (c) 2023 LENAR
 
-ARG_LOCATION="$1"
+script_name="$(basename "$0")"
 
 show_usage(){
     cat <<EOF
-Usage: $(basename "$0") <Location>
+Usage: $script_name <Location>
 
-Location:
-  D            | Use Device Storage
-  S            | Use SIM Storage
-  C            | Check configuration
+Location
+  device               - Use device storage
+  sim                  - Use sim storage
+  check                - Check location
+
+Examples
+  $script_name s
+  $script_name c
 EOF
+}
+
+header() {
+    echo -e "--[      SMS Storage      ]--\n"
+}
+
+normalize() {
+    echo "$1" | tr 'A-Z' 'a-z'
 }
 
 error_exit() {
@@ -21,41 +32,44 @@ error_exit() {
 }
 
 change_location(){
-    case "$ARG_LOCATION" in
-        D|d) ARG_LOCATION="0" ;;
-        S|s) ARG_LOCATION="1" ;;
-    esac
-    if ! at_exe "printf 'config SMS SMS\noption report 0\noption save_location $ARG_LOCATION\noption over_mode 0\noption validity 143\noption center_num N' > /etc/config/smsconfig" >/dev/null 2>&1; then
-        error_exit "Failed to update SMS configuration."
-    else
-        case "$ARG_LOCATION" in
-            0) LOCATION="Device" ;;
-            1) LOCATION="SIM" ;;
+    if at_exec "sed -i '/save_location/s/[0-9]/$arg_location/' /etc/config/smsconfig" &> /dev/null; then
+        case "$arg_location" in
+            0) location="Device" ;;
+            1) location="SIM" ;;
         esac
-        echo "SMS storage location set to $LOCATION"
+        header
+        echo "Location: Set to $location."
+    else
+        error_exit "Failed to update SMS configuration."
     fi
 }
 
 check_location(){
-    SMSCONFIG=$(at_exe "cat /etc/config/smsconfig" | awk '/save_location/ {print $3}' | xargs)
-    if [ -z "$SMSCONFIG" ]; then
+    smsconfig=$(at_exec "cat /etc/config/smsconfig" | sed -n 's/.*save_location \([0-9]*\).*/\1/p')
+    if [ -z "$smsconfig" ]; then
         error_exit "Unable to read the configuration file. Please ensure it exists and is readable."
     else
-        case "$SMSCONFIG" in
-            0) RESULT="Device storage" ;;
-            1) RESULT="SIM storage" ;;
-            *) RESULT="Unknown" ;;
+        case "$smsconfig" in
+            0) result="Device storage" ;;
+            1) result="SIM storage" ;;
+            *) result="Unknown" ;;
         esac
-        echo "SMS location: $RESULT"
+        header
+        echo "Location: $result"
     fi
 }
 
-case "$ARG_LOCATION" in
-    H|h) show_usage ;;
-    D|d|S|s) change_location ;;
-    C|c) check_location ;;
-    '') error_exit "No command specified." ;;
-    *) error_exit "Invalid <Location>. Use '$(basename "$0") H' for more details." ;;
-esac
+main() {
+    if [ $# -eq 0 ]; then
+        error_exit "No command specified. Use '$script_name check' to see location."
+    fi
+    case "$(normalize "$1")" in
+        h|help) show_usage ;;
+        d|device) arg_location="0"; change_location ;;
+        s|sim) arg_location="1"; change_location ;;
+        c|check) check_location ;;
+        *) error_exit "Invalid command '$1'. Use '$script_name help' for more details." ;;
+    esac
+}
 
-exit 0
+main "$@"
