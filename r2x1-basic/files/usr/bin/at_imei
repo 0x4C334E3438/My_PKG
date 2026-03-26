@@ -16,9 +16,8 @@ Method
   check                - Check current IMEI
 
 Examples
-  $script_name d
   $script_name w 123456789012345
-  $script_name s
+  $script_name c
 EOF
 }
 
